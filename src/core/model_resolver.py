@@ -25,6 +25,7 @@ IMAGE_BASE_MODELS = {
     # Nano Banana 2.1, with the existing Gemini 3.1 alias retained.
     "gemini-3.1-flash-image": "gemini-3.1-flash-image",
     "gemini-3.1-flash-lite-image": "gemini-3.1-flash-lite-image",
+    "gpt-image-2": "gemini-3.0-pro-image",
 }
 
 # ──────────────────────────────────────────────
@@ -104,7 +105,7 @@ OPENAI_IMAGE_SIZE_RE = re.compile(r"^(?P<w>\d{2,5})\s*[xX]\s*(?P<h>\d{2,5})$")
 #   但可用作“画质/清晰度”的近似映射。
 OPENAI_QUALITY_MAP = {
     "low": None,
-    "standard": None,
+    "standard": "2k",
     "medium": "2k",
     "high": "4k",
     "hd": "4k",

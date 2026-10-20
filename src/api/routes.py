@@ -6,7 +6,8 @@ import base64
 import json
 import mimetypes
 import re
-from urllib.parse import urlparse
+import time
+from urllib.parse import parse_qs, urlparse
 
 from curl_cffi.requests import AsyncSession
 from fastapi import (
@@ -877,6 +878,117 @@ async def get_gemini_model(model: str, api_key: str = Depends(verify_api_key_fle
         )
 
     return _build_gemini_model_resource(model, description)
+
+
+def _image_response(status: str, message: str, data: Optional[List[Dict[str, Any]]] = None, status_code: int = 200) -> JSONResponse:
+    payload = {
+        "created": int(time.time()),
+        "data": data or [],
+        "message": message,
+        "status": status,
+    }
+    debug_logger.log_info(
+        f"[IMAGE API] 响应体: {json.dumps(payload, ensure_ascii=False, default=str)}"
+    )
+    return JSONResponse(status_code=status_code, content=payload)
+
+
+async def _finish_image_response(
+    response: JSONResponse, callback_url: Optional[str]
+) -> JSONResponse:
+    if callback_url:
+        try:
+            task_id = parse_qs(urlparse(callback_url).query).get("task_id", [None])[0]
+            if task_id:
+                callback_payload = json.loads(response.body)
+                callback_payload["task_id"] = task_id
+                async with AsyncSession() as session:
+                    await session.post(callback_url, json=callback_payload, timeout=15)
+        except Exception as exc:
+            debug_logger.log_warning(f"[IMAGE API] 回调请求失败: {exc}")
+    return response
+
+
+@router.post("/v1/images/generations")
+@router.post("/v1/images/edits")
+async def create_image(
+    raw_request: Request,
+    api_key: str = Depends(verify_api_key_flexible),
+):
+
+    try:
+        body = await raw_request.json()
+        print(
+            f"[IMAGE API] 请求体: {json.dumps(body, ensure_ascii=False, default=str)}",
+            flush=True,
+        )
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="Request body must be a JSON object")
+        callback_url = body.get("callback_url")
+        model = body.get("model")
+        prompt = body.get("prompt")
+        n = body.get("n")
+        if not isinstance(model, str) or not model.strip():
+            raise HTTPException(status_code=400, detail="model is required")
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise HTTPException(status_code=400, detail="prompt is required")
+        if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= 4:
+            raise HTTPException(status_code=400, detail="n must be between 1 and 4")
+        quality = body.get("quality")
+        if not isinstance(quality, str) or quality not in {"low", "medium", "high"}:
+            raise HTTPException(status_code=400, detail="quality must be low, medium, or high")
+        size = body.get("size")
+        if not isinstance(size, str) or size not in {"1:1", "16:9", "9:16", "4:3", "3:4", "0:0"}:
+            raise HTTPException(status_code=400, detail="size must be 1:1, 16:9, 9:16, 4:3, 3:4, or 0:0")
+        references = body.get("images", [])
+        if not isinstance(references, list) or len(references) > 4:
+            raise HTTPException(status_code=400, detail="images must contain at most 4 items")
+        images = []
+        for image_uri in references:
+            if not isinstance(image_uri, str) or not image_uri.strip():
+                raise HTTPException(status_code=400, detail="each image must be a non-empty URL")
+            images.append(await _load_image_bytes_from_uri(image_uri))
+        image_size = {"low": "1k", "medium": "2k", "high": "4k"}.get(quality, "2k")
+        request = ChatCompletionRequest.model_validate({
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "size": size if size != "0:0" else None,
+            "quality": quality,
+            "generationConfig": {"imageConfig": {"imageSize": image_size}},
+        })
+        resolved_model = _resolve_request_model(model, request, images=images)
+        results = []
+        for _ in range(n):
+            result = _parse_handler_result(await _collect_non_stream_result(
+                resolved_model, prompt, images, _get_request_base_url(raw_request)
+            ))
+            if "error" in result:
+                error = result["error"]
+                message = error.get("message", "Generation failed") if isinstance(error, dict) else str(error)
+                return await _finish_image_response(
+                    _image_response("error", message, status_code=_get_error_status_code(result)),
+                    callback_url,
+                )
+            payload = _enrich_payload_with_direct_url(result)
+            url = _extract_url_from_openai_payload(payload)
+            if not url:
+                return await _finish_image_response(
+                    _image_response("error", "Generation response did not include an image URL", status_code=500)
+                )
+            results.append({"mime_type": _guess_mime_type(url, "image/png"), "revised_prompt": prompt, "url": url})
+        return await _finish_image_response(
+            _image_response("200", "success", results), callback_url
+        )
+    except HTTPException as exc:
+        response = _image_response("error", str(exc.detail), status_code=exc.status_code)
+        if "finish_image_response" in locals():
+            return await finish_image_response(response)
+        return response
+    except Exception as exc:
+        response = _image_response("error", str(exc), status_code=500)
+        if "finish_image_response" in locals():
+            return await finish_image_response(response)
+        return response
 
 
 @router.post("/v1/chat/completions")
