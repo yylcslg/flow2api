@@ -675,6 +675,11 @@ class FlowFrontendMixin:
         resolved_source_path = source_path or (
             f"/project/{project_id}" if project_id else "/projects"
         )
+        print(
+            f"[Flow RPC] start rpc={rpc_id}, source_path={resolved_source_path}, "
+            f"cookie_storage_present={bool(str(cookie_storage or '').strip())}",
+            flush=True,
+        )
         page_url = f"https://flow.google.com{resolved_source_path}"
         bootstrap_cookie_header = (
             serialize_cookie_header_for_url(cookie_storage, page_url)
@@ -683,18 +688,30 @@ class FlowFrontendMixin:
         )
         if not bootstrap_cookie_header:
             raise RuntimeError("Flow frontend RPC requires Google session cookies")
+        print(
+            f"[Flow RPC] bootstrap request cookie_names="
+            f"{','.join(sorted({part.split('=', 1)[0].strip() for part in bootstrap_cookie_header.split(';') if '=' in part}))}",
+            flush=True,
+        )
         bootstrap_text = await self._load_flow_frontend_bootstrap(
             page_url,
             bootstrap_cookie_header,
             timeout,
         )
+        print(f"[Flow RPC] bootstrap received chars={len(bootstrap_text)}", flush=True)
         bootloader_match = re.search(
             r"boq_labs-ai-sandbox-frontend_[A-Za-z0-9_.-]+",
             bootstrap_text,
         )
         session_match = re.search(r'"FdrFJe":"(-?[0-9]+)"', bootstrap_text)
         if not bootloader_match or not session_match:
+            print(
+                f"[Flow RPC] bootstrap metadata missing bootloader={bool(bootloader_match)} "
+                f"session={bool(session_match)}",
+                flush=True,
+            )
             raise RuntimeError("Flow frontend bootstrap metadata is unavailable")
+        print("[Flow RPC] bootstrap metadata parsed", flush=True)
         bootloader_id = bootloader_match.group(0)
         frontend_session_id = session_match.group(1)
         request_counter = random.randint(10_000, 90_000)
@@ -735,6 +752,13 @@ class FlowFrontendMixin:
         if at_token:
             request_fields["at"] = at_token
         request_body = urlencode(request_fields)
+
+        print("rpc_cookie_header", rpc_cookie_header)
+        print(
+            f"[Flow RPC] sending rpc={rpc_id}, xsrf_token_present={bool(at_token)}, "
+            f"request_bytes={len(request_body)}",
+            flush=True,
+        )
         response_text = await self._make_text_request(
             method="POST",
             url=url,
@@ -745,6 +769,7 @@ class FlowFrontendMixin:
             return_error_response=True,
             redact_sensitive_logs=True,
         )
+        print(f"[Flow RPC] response received chars={len(response_text)}", flush=True)
         xsrf_match = re.search(r'\["xsrf"\s*,\s*"((?:\\.|[^"\\])*)"', response_text)
         if xsrf_match:
             request_fields["at"] = json.loads('"' + xsrf_match.group(1) + '"')

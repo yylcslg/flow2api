@@ -2654,10 +2654,10 @@ async def plugin_update_token(
     request: PluginTokenUpdateRequest,
     authorization: Optional[str] = Header(None),
 ):
+    print("update-token")
     """Validate and store credentials pushed by Token Updater 1.3+."""
     await _verify_plugin_connection_token(authorization)
     plugin_config = await db.get_plugin_config()
-
     google_cookies = request.google_cookies
     email = request.login_account
 
@@ -2666,6 +2666,9 @@ async def plugin_update_token(
             "",
             google_cookies=google_cookies,
         )
+
+        print("result")
+        print(result)
         at = result["access_token"]
         expires = result.get("expires")
         at_expires = None
@@ -2675,6 +2678,7 @@ async def plugin_update_token(
             except (TypeError, ValueError):
                 pass
     except Exception as cookie_error:
+        print("Exception", cookie_error)
         raise HTTPException(
             status_code=400,
             detail=f"Google Cookie 验证失败：{str(cookie_error)}",

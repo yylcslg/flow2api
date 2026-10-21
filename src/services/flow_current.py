@@ -104,10 +104,12 @@ class CurrentFlowClientMixin:
         source_path: Optional[str] = None,
         timeout: Optional[int] = None,
     ) -> Any:
+        print("cookie_storage")
         cookie_storage = await self._resolve_flow_frontend_cookie_storage(
             google_cookies=google_cookies,
             token_id=token_id,
         )
+        print("after cookie_storage")
         return await self._call_flow_frontend_rpc(
             rpc_id=rpc_id,
             argument=argument,
@@ -124,13 +126,17 @@ class CurrentFlowClientMixin:
         google_cookies: Optional[str] = None,
         token_id: Optional[int] = None,
     ) -> dict:
+        
         if str(google_cookies or "").strip():
             validate_flow_cookie_storage(google_cookies)
+
+        print("get_credits")
         credits = await self.get_credits(
             self.FRONTEND_ACCESS_TOKEN,
             google_cookies=google_cookies,
             token_id=token_id,
         )
+        print("after get_credits")
         expires = datetime.now(timezone.utc) + timedelta(minutes=55)
         return {
             "access_token": self.FRONTEND_ACCESS_TOKEN,
@@ -178,13 +184,16 @@ class CurrentFlowClientMixin:
         google_cookies: Optional[str] = None,
         token_id: Optional[int] = None,
     ) -> dict:
+        print("_current_rpc")
         payload = await self._current_rpc(
             rpc_id="nzlxg",
             argument=[],
             google_cookies=google_cookies,
             token_id=token_id,
         )
+        print("after _current_rpc")
         values = payload if isinstance(payload, list) else []
+        print(" payload")
         credits = next(
             (
                 int(value)
@@ -193,6 +202,7 @@ class CurrentFlowClientMixin:
             ),
             0,
         )
+        print("credits next")
         return {
             "credits": credits,
             "userPaygateTier": (

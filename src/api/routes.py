@@ -934,12 +934,12 @@ async def create_image(
             raise HTTPException(status_code=400, detail="prompt is required")
         if not isinstance(n, int) or isinstance(n, bool) or not 1 <= n <= 4:
             raise HTTPException(status_code=400, detail="n must be between 1 and 4")
-        quality = body.get("quality")
+        quality = body.get("quality", "low")
         if not isinstance(quality, str) or quality not in {"low", "medium", "high"}:
             raise HTTPException(status_code=400, detail="quality must be low, medium, or high")
-        size = body.get("size")
-        if not isinstance(size, str) or size not in {"1:1", "16:9", "9:16", "4:3", "3:4", "0:0"}:
-            raise HTTPException(status_code=400, detail="size must be 1:1, 16:9, 9:16, 4:3, 3:4, or 0:0")
+        size = body.get("size", "1:1")
+        # if not isinstance(size, str) or size not in {"1:1", "16:9", "9:16", "4:3", "3:4", "0:0"}:
+        #     raise HTTPException(status_code=400, detail="size must be 1:1, 16:9, 9:16, 4:3, 3:4, or 0:0")
         references = body.get("images", [])
         if not isinstance(references, list) or len(references) > 4:
             raise HTTPException(status_code=400, detail="images must contain at most 4 items")
